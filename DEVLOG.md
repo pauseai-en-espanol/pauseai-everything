@@ -4,6 +4,29 @@ Reverse-chronological log of development sessions. Each entry is self-contained.
 
 ---
 
+## 2026-09-16 — Kubernetes deployment for the pauseai-en-espanol fork
+
+**What:** Made the fork deployable to the danilupion-com cluster via Argo CD, following the pauseai-website-es pattern: Docker image → Harbor → chart tag bump on `main` → Argo CD sync. Cluster wiring (ApplicationSet, values, HTTPRoute, sealed secrets, Postgres provisioning) lives in the `danilupion/gitops` repo.
+
+**Key changes:**
+- `Dockerfile`, `.dockerignore` — single image for web, worker and migrations (full node_modules; tsx + drizzle-kit run from `src/`). Verified locally: health endpoint, worker startup, 1.5 GB.
+- `charts/pauseai-everything/` — Helm chart: web + worker Deployments, Service, migrate Job as `pre-install,pre-upgrade` hook (`drizzle-kit push` + seed), `existingSecret` injected via envFrom.
+- `.github/workflows/ci.yml`, `cd.yml`, `.github/actions/setup-node` — copied from website-es (self-hosted juggernaut runner, PAT_TOKEN push of the tag bump).
+- `src/app/api/health/route.ts` — DB-free probe endpoint.
+- `next.config.ts` — `GIT_SHA` build arg feeds `NEXT_PUBLIC_GIT_SHA`; `package.json` — `docker:build` / `docker:push`.
+- Docs: `docs/deployment.md` rewritten; README, CLAUDE.md, architecture.md, development.md, api-reference.md updated. Railway content removed from this fork's docs (`railway.toml` kept for clean upstream merges).
+
+**Decisions:**
+- Branches: `dev` is a fast-forward-only mirror of upstream `dev`; `main` is the deploy branch and carries all deployment commits plus CD tag bumps. Upstream's `main` and `dev` had identical trees with one duplicated commit; `main` was aligned by merging `dev` (force-push was declined by tooling).
+- Dashboard is VPN-only: HTTPRoute on `gateway-private` at `crm.pauseai.es`. Consequence: unsubscribe links and inbound webhooks (Mailersend, Tally) do not work until a second, path-restricted public hostname is added — deferred until email goes live.
+- `EMAIL_MODE=sandbox` in production for now; Mailersend not configured. Mailu SMTP transport and magic-link login discussed as future options to drop the Mailersend and Google dependencies.
+- Reused the `pauseai-es` Harbor project and its pull robot (re-sealed for the new namespace) instead of creating a per-app robot.
+
+**Open items:**
+- Google OAuth client for `crm.pauseai.es` not yet created; sealed secret has `CHANGE_ME` placeholders for `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` and must be re-sealed.
+- `PAT_TOKEN` repository secret needed on the fork for CD; set `main` as the fork's default branch.
+- `scripts/generate-api-docs.ts` regenerates CLAUDE.md from a stale template — do not run `npm run docs:api` without first syncing the template with the hand-maintained CLAUDE.md.
+
 ## 2026-04-07 — Shared field mapper, type-aware editors, and UI consistency
 
 **What:** Extracted duplicated field mapper code (~300 lines) into shared components reused by sync config, sync detail, and CSV import. Added type-aware constant value editors and new cell editors for multiselect/date fields in the contacts table. Unified tags and multiselect UI to use the same dropdown-to-add pattern everywhere.

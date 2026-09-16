@@ -990,6 +990,14 @@ Bulk update per-contact sync settings. **Auth: Session**
 
 **Errors:** `400 validation`
 
+## Health
+
+### `GET /api/health`
+
+Liveness/readiness probe used by the Kubernetes deployment. Does not touch the database. **Auth: none**
+
+**Response:** { status: "ok", sha: string }
+
 ## Sandbox (Email Testing)
 
 All sandbox endpoints require admin role and only function when `EMAIL_MODE=sandbox`. Returns 404 in live mode.

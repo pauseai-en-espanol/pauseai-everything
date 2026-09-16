@@ -1,215 +1,109 @@
 # Deployment Guide
 
-> Last updated: 2026-03-20.
+> Last updated: 2026-09-16. This fork (pauseai-en-espanol) deploys to the `danilupion-com`
+> Kubernetes cluster via Argo CD. Upstream (PauseAI/pauseai-everything) deploys to Railway;
+> `railway.toml` is kept only so merges from upstream stay clean.
 
 ## Overview
 
-The app runs on **Railway** with three services from a single codebase:
+One Docker image, three workloads, all rendered by the Helm chart in `charts/pauseai-everything`:
 
-| Service | Type | Start command |
-|---------|------|---------------|
-| **web** | Next.js server | `npx drizzle-kit push && npm start` |
-| **worker** | graphile-worker process | `npx tsx src/worker/index.ts` |
-| **Postgres-JwGd** | Managed PostgreSQL | (managed by Railway) |
+| Workload | Command | Notes |
+|----------|---------|-------|
+| **web** | `npm start` | Next.js on :3000; readiness/liveness on `GET /api/health` |
+| **worker** | `npx tsx src/worker/index.ts` | graphile-worker (campaign sending, scripts, syncs, churn detection) |
+| **migrate** | `npx drizzle-kit push && npx tsx src/db/seed.ts` | Helm `pre-install,pre-upgrade` hook (Argo CD PreSync). Runs before every rollout, mirroring the Railway `drizzle-kit push` start command |
 
-The web service runs `drizzle-kit push` on every deploy to apply any pending schema changes before starting Next.js. The worker process runs background jobs (campaign sending, script execution, churn detection).
+PostgreSQL is the shared cluster instance (`postgresql.postgresql.svc.cluster.local`), database and
+role `pauseai_everything`, provisioned declaratively by the gitops repo.
 
-## Railway Project
+## Branches
 
-- **Project**: `pauseai-crm`
-- **Project ID**: `d4b10f4b-d227-4a7a-a8a8-c3e8421183f9`
-- **URL**: https://web-production-4523c.up.railway.app
-- **Dashboard**: https://railway.com/project/d4b10f4b-d227-4a7a-a8a8-c3e8421183f9
+- `dev` — clean mirror of upstream `dev`. Never commit here; fast-forward only.
+- `main` — deploy branch. Everything deployment-specific (Dockerfile, chart, workflows) lives here,
+  and CD commits image-tag bumps here. Ship upstream changes with `git merge dev` on `main`.
 
-### Service IDs
+## Pipeline
 
-| Service | ID |
-|---------|-----|
-| web | `8875b979-e135-4264-b4ee-008df6089335` |
-| worker | `1aca9bf6-97bb-4bfb-9f31-95fa9c666eab` |
-| Postgres-JwGd | `bf86975f-4c53-4299-b386-3827fc3f1254` |
-
-## Deploying
-
-Both services deploy from local files using `railway up`. Because `railway.toml` defines the start command, you need to swap it per service.
-
-### Deploy web
-
-```bash
-# 1. Set railway.toml for web
-cat > railway.toml << 'EOF'
-[build]
-builder = "RAILPACK"
-
-[deploy]
-startCommand = "npx drizzle-kit push && npm start"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
-EOF
-
-# 2. Deploy
-railway up --detach --service web
+```
+push to main ──▶ CI (self-hosted juggernaut runner: npm ci, npm test, npm run build)
+                  └─▶ CD: docker build (GIT_SHA build arg) ──▶ push harbor.danilupion.com/pauseai-es/pauseai-everything:<version>.<sha>
+                        └─▶ yq bumps charts/pauseai-everything/values.yaml image.tag, commits "[skip ci]" to main
+                              └─▶ Argo CD (gitops repo ApplicationSet) syncs: PreSync migrate Job → web + worker rollout
 ```
 
-### Deploy worker
+Workflows: `.github/workflows/ci.yml`, `.github/workflows/cd.yml` (copied from pauseai-website-es).
+CD needs the `PAT_TOKEN` repository secret (push access to `main`) and the org-level self-hosted
+runner, which supplies `DOCKER_REGISTRY` and Harbor push credentials.
+
+## Where things live
+
+| What | Where |
+|------|-------|
+| Dockerfile / `.dockerignore` | repo root |
+| Helm chart | `charts/pauseai-everything` |
+| Argo CD ApplicationSet | gitops: `catalog/apps/pauseai-everything/applicationset.yaml` |
+| Cluster values (hostname, env, secret name) | gitops: `clusters/danilupion-com/values/apps/pauseai-everything.yaml` |
+| HTTPRoute (`crm.pauseai.es` on gateway-private, VPN-only via Headscale) | gitops: `clusters/danilupion-com/resources/apps/pauseai-everything/httproute.yaml` |
+| Sealed secrets | gitops: `.../resources/apps/pauseai-everything/secrets/` and `.../resources/data/postgresql/pauseai-everything-db-credentials.yaml` |
+| DB provisioning | gitops: `clusters/danilupion-com/values/data/postgresql.yaml` (`databases:` list) |
+
+DNS (Cloudflare via external-dns) and TLS (wildcard `*.pauseai.es` on the private gateway) are
+automatic once the HTTPRoute exists. The record resolves to the VPN address 172.31.240.1, so the
+CRM is only reachable from devices joined to the Headscale network.
+
+## Environment variables
+
+Plain values come from the chart's `env` list (overridden in the gitops cluster values); secrets
+come from the Secret named by `existingSecret`, injected with `envFrom` into every pod.
+
+| Variable | Source | Notes |
+|----------|--------|-------|
+| `DATABASE_URL` | secret | `postgresql://pauseai_everything:<pw>@postgresql.postgresql.svc.cluster.local:5432/pauseai_everything?sslmode=disable` |
+| `NEXTAUTH_SECRET` | secret | `openssl rand -base64 32` |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | secret | Google OAuth client; redirect URI `https://crm.pauseai.es/api/auth/callback/google` |
+| `UNSUBSCRIBE_SECRET` | secret | `openssl rand -hex 32` |
+| `EMAIL_ENCRYPTION_KEY` | secret | `openssl rand -hex 32`; encrypts OAuth tokens and connector credentials at rest, rotating it invalidates them |
+| `MAILERSEND_API_KEY`, `MAILERSEND_FROM_EMAIL`, `MAILERSEND_WEBHOOK_SIGNING_SECRET`, `TALLY_WEBHOOK_SIGNING_SECRET` | secret | only needed once `EMAIL_MODE=live` |
+| `EMAIL_MODE` | env | `sandbox` (default) captures all outbound mail in `sandbox_emails`; `live` sends via Mailersend |
+| `AUTH_TRUST_HOST` | env | `true`; Auth.js behind the Envoy gateway |
+| `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_URL` | env | `https://crm.pauseai.es` |
+| `ADMIN_EMAILS` | env | comma-separated; auto-promoted to admin on first sign-in |
+
+## Local image build
 
 ```bash
-# 1. Set railway.toml for worker
-cat > railway.toml << 'EOF'
-[build]
-builder = "RAILPACK"
-
-[deploy]
-startCommand = "npx tsx src/worker/index.ts"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
-EOF
-
-# 2. Deploy
-railway up --detach --service worker
+GIT_SHA=$(git rev-parse --short HEAD) DOCKER_TAG_SUFFIX=local npm run docker:build
+docker run --rm -p 3000:3000 --env-file .env pauseai-es/pauseai-everything:1.0.0.local
+curl localhost:3000/api/health
 ```
 
-### Deploy both (quick script)
+`helm lint charts/pauseai-everything` and `helm template x charts/pauseai-everything` render the manifests.
+
+## Rotating or adding secrets
+
+Edit an unsealed copy, then re-seal against the cluster (the sealed files carry the unsealed template
+as a header comment):
 
 ```bash
-# Deploy web
-cat > railway.toml << 'EOF'
-[build]
-builder = "RAILPACK"
-
-[deploy]
-startCommand = "npx drizzle-kit push && npm start"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
-EOF
-railway up --detach --service web
-
-# Deploy worker
-cat > railway.toml << 'EOF'
-[build]
-builder = "RAILPACK"
-
-[deploy]
-startCommand = "npx tsx src/worker/index.ts"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
-EOF
-railway up --detach --service worker
+kubectl config use-context danilupion.com
+kubeseal --controller-namespace sealed-secrets --controller-name sealed-secrets --format yaml \
+  < /tmp/pauseai-everything-credentials.yaml \
+  > clusters/danilupion-com/resources/apps/pauseai-everything/secrets/pauseai-everything-credentials.yaml
+rm /tmp/pauseai-everything-credentials.yaml
 ```
 
-## Environment Variables
+The DB password must be identical in `pauseai-everything-db-credentials` (namespace `postgresql`) and
+inside `DATABASE_URL`.
 
-> **Tip:** Some credentials (MailerSend API key and from-email) can be managed directly in the app at **Settings → Integrations** without touching env vars or redeploying. DB-stored values take precedence over env vars.
+## Schema changes
 
-### Web service
+`drizzle-kit push` runs in the PreSync Job on every deploy. It applies additive changes unattended;
+a change that would drop data makes the Job fail (it prompts for confirmation, which a Job cannot
+answer) and the rollout stops. Apply such changes manually with `npx drizzle-kit push` from a machine
+with `DATABASE_URL` pointing at the cluster DB (port-forward `svc/postgresql -n postgresql 5432`).
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection (uses Railway reference: `${{Postgres-JwGd.DATABASE_URL}}`) | Yes |
-| `NEXTAUTH_SECRET` | Cryptographic secret for JWT sessions | Yes |
-| `NEXTAUTH_URL` | Public URL of the web service | Yes |
-| `AUTH_GOOGLE_ID` | Google OAuth client ID | Yes |
-| `AUTH_GOOGLE_SECRET` | Google OAuth client secret | Yes |
-| `MAILERSEND_API_KEY` | Mailersend API key fallback (prefer setting via **Settings → Integrations** in the UI) | No |
-| `MAILERSEND_FROM_EMAIL` | From address fallback (prefer setting via **Settings → Integrations** in the UI) | No |
-| `ADMIN_EMAILS` | Comma-separated emails auto-promoted to admin on sign-in | Recommended |
-| `UNSUBSCRIBE_SECRET` | HMAC secret for unsubscribe tokens (`openssl rand -hex 32`) | Yes |
-| `NEXT_PUBLIC_APP_URL` | Public URL used in unsubscribe links | Yes |
-| `EMAIL_ENCRYPTION_KEY` | AES-256 key for encrypting OAuth tokens and connection credentials (`openssl rand -hex 32`) | Yes |
-| `MAILERSEND_WEBHOOK_SIGNING_SECRET` | HMAC secret for verifying Mailersend webhook signatures (from Mailersend dashboard) | Yes (if using Mailersend) |
-| `TALLY_WEBHOOK_SIGNING_SECRET` | HMAC secret for verifying Tally webhook signatures (from Tally form settings) | Yes (if using Tally forms) |
-| `EMAIL_MODE` | `live` for production (sends real email via Mailersend). Defaults to `sandbox` if unset — never set to `sandbox` in production | Yes |
-| `NODE_ENV` | Must be `production` | Yes |
-| `DEV_BYPASS_AUTH` | Must be `false` in production (bypass only works when NODE_ENV=development) | No |
+## Rollback
 
-### Worker service
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection (same as web) | Yes |
-| `MAILERSEND_API_KEY` | Mailersend API key fallback (prefer setting via the UI) | No |
-| `MAILERSEND_FROM_EMAIL` | From address fallback (prefer setting via the UI) | No |
-| `UNSUBSCRIBE_SECRET` | Same value as web — needed for unsubscribe URL generation during campaign sends | Yes |
-| `NEXT_PUBLIC_APP_URL` | Same value as web — used in unsubscribe URLs | Yes |
-| `EMAIL_ENCRYPTION_KEY` | Same value as web — needed for credential decryption during sync | Yes |
-| `EMAIL_MODE` | `live` — same value as web. Worker sends campaign emails, so it must also be in live mode | Yes |
-| `NODE_ENV` | `production` | Yes |
-
-### Setting variables
-
-```bash
-railway service web
-railway variables set KEY=value
-
-railway service worker
-railway variables set KEY=value
-```
-
-## Checking Logs
-
-```bash
-# Web logs
-railway service web && railway logs -n 50
-
-# Worker logs
-railway service worker && railway logs -n 50
-```
-
-## Authentication & Security
-
-### Auth flow
-1. Users sign in via **Google OAuth** at `/login`
-2. Sessions use **JWT strategy** (stateless, no session table lookups)
-3. Role stored in the `user` table (`role` column: `admin`, `member`, `viewer`) — this is the global role. Per-workspace roles are in `user_workspaces`.
-
-### Admin auto-promotion
-Emails listed in the `ADMIN_EMAILS` environment variable are automatically promoted to admin on their first sign-in. Currently configured: `maxime@pauseai.fr`.
-
-### DEV_BYPASS_AUTH
-This development convenience flag **only activates when both conditions are met**:
-- `NODE_ENV === "development"`
-- `DEV_BYPASS_AUTH === "true"`
-
-In production (`NODE_ENV=production`), the bypass is **always inactive** regardless of the `DEV_BYPASS_AUTH` value. It is still good practice to set it to `false` or remove it in production.
-
-### Google Cloud project
-All OAuth and Gmail API credentials live in the **`pauseai-everything`** GCP project. The OAuth consent screen is set to **External** (users with any email domain can connect). While in "Testing" mode, only manually added test users can authenticate — submit for verification when ready for general access.
-
-A single OAuth client is used for both login and Gmail integration. The following redirect URIs and origins must be configured in [Google Cloud Console](https://console.cloud.google.com/apis/credentials?project=pauseai-everything):
-
-**Authorized redirect URIs:**
-- `http://localhost:3000/api/auth/callback/google` (login — dev)
-- `http://localhost:3000/api/auth/gmail/callback` (Gmail — dev)
-- `https://web-production-4523c.up.railway.app/api/auth/callback/google` (login — prod)
-- `https://web-production-4523c.up.railway.app/api/auth/gmail/callback` (Gmail — prod)
-
-**Authorized JavaScript origins:**
-- `http://localhost:3000`
-- `https://web-production-4523c.up.railway.app`
-
-The Gmail API and the `gmail.readonly` scope must be enabled in the project.
-
-## Worker Jobs
-
-| Task | Trigger | Description |
-|------|---------|-------------|
-| `send_campaign` | On-demand (enqueued by API) | Sends a campaign to all contacts in its segment |
-| `run_script` | On-demand or scheduled | Executes a user-defined script in a sandboxed VM |
-| `dispatch_scripts` | Cron: every minute (`* * * * *`) | Checks for enabled scripts with cron schedules and enqueues `run_script` jobs |
-| `detect_churn` | Cron: daily at 6am UTC (`0 6 * * *`) | Flags dormant contacts based on inactivity |
-| `sync_email_interactions` | On-demand (enqueued by dispatcher or manual refresh) | Fetches Gmail messages, matches to CRM contacts, creates interactions |
-| `dispatch_email_syncs` | Cron: every minute (`* * * * *`) | Enqueues email connections whose sync interval has elapsed |
-
-## Troubleshooting
-
-### Worker failing with "Failed query: select ... from scripts"
-The `scripts` table doesn't exist yet. Redeploy the web service — `drizzle-kit push` in its start command will create missing tables.
-
-### "relation does not exist" errors
-Run a web deploy to push schema changes: the web start command runs `drizzle-kit push` automatically.
-
-### Google OAuth redirect error
-Make sure `NEXTAUTH_URL` matches the actual public domain and that the redirect URI is registered in Google Cloud Console.
-
-### Campaign stuck in "sending" status
-The campaign was queued but the worker isn't running or failed mid-send. Check worker logs. The worker can be redeployed to restart processing.
+Revert the `chore: update image tag` commit on `main` (or set `image.tag` in the gitops cluster
+values to a previous `<version>.<sha>`); Argo CD rolls back. Schema is not rolled back.

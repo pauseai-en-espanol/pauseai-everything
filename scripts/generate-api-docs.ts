@@ -30,6 +30,15 @@ type Endpoint = {
 };
 
 const endpoints: Endpoint[] = [
+  // Health
+  {
+    method: "GET",
+    path: "/api/health",
+    auth: "none",
+    description: "Liveness/readiness probe (no DB access)",
+    responseDescription: "{ status: 'ok', sha: string }",
+    errors: [],
+  },
   // Contacts
   {
     method: "GET",

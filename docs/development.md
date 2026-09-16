@@ -1,12 +1,13 @@
 # Development Guide
 
-> Last updated: 2026-04-05.
+> Last updated: 2026-09-16.
 
 ## Prerequisites
 
 - **Node.js** 20+
 - **PostgreSQL** 14+ (local install or Docker)
-- **Railway CLI** — for production deploys: `npm install -g @railway/cli`
+- **Docker** (optional) — to build the production image locally
+- **kubectl** with the `danilupion.com` context (optional) — to inspect production, see [deployment.md](deployment.md)
 
 ## First-time setup
 
@@ -138,7 +139,7 @@ To actually send emails (e.g., for production or manual testing against real Mai
 EMAIL_MODE=live
 ```
 
-Set this in your `.env` file and restart the dev server and worker. **For production, `EMAIL_MODE=live` is required** — see [deployment.md](deployment.md).
+Set this in your `.env` file and restart the dev server and worker. Production stays in sandbox mode until Mailersend is configured; flipping to `live` is described in [deployment.md](deployment.md).
 
 ### All development testing should use sandbox mode
 
@@ -351,27 +352,33 @@ FROM graphile_worker.jobs ORDER BY created_at DESC LIMIT 20;
 
 ## Accessing production
 
+Production runs on the `danilupion-com` Kubernetes cluster, namespace `pauseai-everything`, and is
+reachable only from the Headscale VPN. Deploys are automatic on push to `main`
+(see [deployment.md](deployment.md)).
+
 ### Logs
 
 ```bash
-railway service web && railway logs -n 50    # web logs
-railway service worker && railway logs -n 50  # worker logs
+kubectl -n pauseai-everything logs deploy/pauseai-everything -f          # web
+kubectl -n pauseai-everything logs deploy/pauseai-everything-worker -f   # worker
+kubectl -n pauseai-everything logs job/pauseai-everything-migrate         # last migration run
 ```
 
 ### Environment variables
 
-```bash
-railway service web && railway variables      # view web env vars
-railway variables set KEY=value               # set a variable (triggers redeploy)
-```
+Plain values live in the gitops repo (`clusters/danilupion-com/values/apps/pauseai-everything.yaml`);
+secrets are sealed in `clusters/danilupion-com/resources/apps/pauseai-everything/secrets/`. Commit a
+change there and Argo CD rolls it out.
 
 ### Production database
 
-Connect via `DATABASE_URL` from the Railway Postgres service. You can get it with:
 ```bash
-railway service Postgres-JwGd && railway variables
+kubectl -n postgresql port-forward svc/postgresql 5433:5432
+# DATABASE_URL=postgresql://pauseai_everything:<password>@localhost:5433/pauseai_everything
 ```
-Then use psql, Drizzle Studio, or TablePlus to connect.
+
+The password is in the `pauseai-everything-credentials` secret
+(`kubectl -n pauseai-everything get secret pauseai-everything-credentials -o jsonpath='{.data.DATABASE_URL}' | base64 -d`).
 
 ---
 
@@ -384,18 +391,18 @@ Your schema references a table that doesn't exist yet. Run `npx drizzle-kit push
 Check `DATABASE_URL` is set. The worker requires it and will throw immediately if missing.
 
 **Gmail integration setup**
-The personal email integration requires a Google Cloud project with the Gmail API enabled. We use the **`pauseai-everything`** GCP project for this. The OAuth consent screen is set to **External** (so users with any email domain can connect) and the Gmail API is enabled.
+The personal email integration requires a Google Cloud project with the Gmail API enabled. Upstream uses the **`pauseai-everything`** GCP project; this fork needs its own OAuth client. The OAuth consent screen is set to **External** (so users with any email domain can connect) and the Gmail API is enabled.
 
 The same OAuth client (`AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`) is used for both login and Gmail. The following **authorized redirect URIs** must be configured in [Google Cloud Console](https://console.cloud.google.com/apis/credentials?project=pauseai-everything):
 
 - `http://localhost:3000/api/auth/callback/google` (login — dev)
 - `http://localhost:3000/api/auth/gmail/callback` (Gmail — dev)
-- `https://web-production-4523c.up.railway.app/api/auth/callback/google` (login — prod)
-- `https://web-production-4523c.up.railway.app/api/auth/gmail/callback` (Gmail — prod)
+- `https://crm.pauseai.es/api/auth/callback/google` (login — prod)
+- `https://crm.pauseai.es/api/auth/gmail/callback` (Gmail — prod)
 
 And these **authorized JavaScript origins**:
 - `http://localhost:3000`
-- `https://web-production-4523c.up.railway.app`
+- `https://crm.pauseai.es`
 
 Set `EMAIL_ENCRYPTION_KEY` to a random 32-byte hex string (`openssl rand -hex 32`). This must be the same value in both the web and worker services.
 

@@ -23,6 +23,7 @@ CRM and operations platform for PauseAI Global. Built with Next.js 16 (App Route
 - **Workspace design:** See [docs/specs/workspaces.md](docs/specs/workspaces.md) for the multi-tenancy specification
 - **Dev log:** `DEVLOG.md` — reverse-chronological session log (updated via `/wrapup`)
 - **Bug tracker:** `BUGS.md` — security audit findings and fix status
+- **Deployment:** `Dockerfile`, `charts/pauseai-everything/` (Helm: web + worker + migrate hook), `.github/workflows/{ci,cd}.yml`; cluster wiring in the gitops repo. See [docs/deployment.md](docs/deployment.md). Branches: `dev` mirrors upstream, `main` deploys
 
 ## Workspaces (Multi-Tenancy)
 

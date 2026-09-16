@@ -57,7 +57,7 @@ A custom-built platform for PauseAI Global that starts as a CRM and grows into t
 | Table | AG Grid Community | Inline editing, filtering, free |
 | Auth | Auth.js v5 (NextAuth) | Google OAuth, JWT sessions |
 | Email | Mailersend API | Already in use |
-| Hosting | Railway | Web + worker + Postgres, push-to-deploy |
+| Hosting | Kubernetes (Argo CD) | One image; web + worker Deployments + migrate hook; shared cluster Postgres. Upstream uses Railway |
 | Tests | Vitest | Fast, TypeScript-native |
 
 ## Architecture: Web + Worker
@@ -401,12 +401,15 @@ POST   /api/webhooks/mailersend   Mailersend delivery/tracking/unsubscribe event
 
 ## Hosting and deployment
 
-**Railway** with three services:
-- **web** — Next.js server (start: `npx drizzle-kit push && npm start`)
-- **worker** — Node process (start: `npx tsx src/worker/index.ts`)
-- **Postgres-JwGd** — managed PostgreSQL
+This fork runs on the `danilupion-com` Kubernetes cluster via Argo CD (upstream runs on Railway).
+One Docker image (`Dockerfile`) is rendered by the Helm chart in `charts/pauseai-everything` into:
+- **web** — Next.js server (`npm start`), probed on `GET /api/health`
+- **worker** — graphile-worker (`npx tsx src/worker/index.ts`)
+- **migrate** — Helm pre-install/pre-upgrade hook Job (`npx drizzle-kit push && npx tsx src/db/seed.ts`), so the schema is applied before each rollout
 
-The web service runs `drizzle-kit push` on every deploy to apply pending schema changes. Both services share the same `DATABASE_URL`.
+GitHub Actions (`.github/workflows/ci.yml`, `cd.yml`) build the image on a self-hosted runner, push it
+to Harbor, and commit the new tag into the chart values on `main`; the gitops repo's ApplicationSet syncs
+it. The dashboard is served on the private (VPN) gateway at `crm.pauseai.es`.
 
 See [deployment.md](deployment.md) for the full deploy guide.
 

@@ -2,8 +2,8 @@
 
 A custom-built CRM and operational platform for [PauseAI Global](https://pauseai.info). Starts as a CRM, grows into the central hub for managing volunteers, campaigns, and outreach. Supports multi-tenancy via workspaces for PauseAI Global and national chapters.
 
-**Production:** https://web-production-4523c.up.railway.app
-**Repo:** https://github.com/Maximophone/pauseai-everything
+**Production (this fork, VPN-only):** https://crm.pauseai.es
+**Repo:** https://github.com/pauseai-en-espanol/pauseai-everything (fork of https://github.com/PauseAI/pauseai-everything)
 
 ---
 
@@ -31,7 +31,7 @@ A Next.js web app + background worker that replaces Airtable + manual email work
 | UI | shadcn/ui + Tailwind CSS + AG Grid (Community) |
 | Auth | Auth.js v5 (Google OAuth) |
 | Email | Mailersend API |
-| Hosting | Railway (web + worker + Postgres) |
+| Hosting | Kubernetes on danilupion-com via Argo CD (this fork); upstream uses Railway — see [docs/deployment.md](docs/deployment.md) |
 | Tests | Vitest |
 
 ## Quick start (local dev)
