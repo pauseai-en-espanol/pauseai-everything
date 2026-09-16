@@ -10,7 +10,7 @@ Reverse-chronological log of development sessions. Each entry is self-contained.
 
 **Key changes:**
 - `Dockerfile`, `.dockerignore` — single image for web, worker and migrations (full node_modules; tsx + drizzle-kit run from `src/`). Verified locally: health endpoint, worker startup, 1.5 GB.
-- `charts/pauseai-everything/` — Helm chart: web + worker Deployments, Service, migrate Job as `pre-install,pre-upgrade` hook (`drizzle-kit push` + seed), `existingSecret` injected via envFrom.
+- `charts/pauseai-everything/` — Helm chart: web + worker Deployments, Service, migrate Job as an Argo CD Sync-phase hook (wave 1, Deployments at wave 2) (`drizzle-kit push` + seed), `existingSecret` injected via envFrom.
 - `.github/workflows/ci.yml`, `cd.yml`, `.github/actions/setup-node` — copied from website-es (self-hosted juggernaut runner, PAT_TOKEN push of the tag bump).
 - `src/app/api/health/route.ts` — DB-free probe endpoint.
 - `next.config.ts` — `GIT_SHA` build arg feeds `NEXT_PUBLIC_GIT_SHA`; `package.json` — `docker:build` / `docker:push`.

@@ -12,7 +12,7 @@ One Docker image, three workloads, all rendered by the Helm chart in `charts/pau
 |----------|---------|-------|
 | **web** | `npm start` | Next.js on :3000; readiness/liveness on `GET /api/health` |
 | **worker** | `npx tsx src/worker/index.ts` | graphile-worker (campaign sending, scripts, syncs, churn detection) |
-| **migrate** | `npx drizzle-kit push && npx tsx src/db/seed.ts` | Helm `pre-install,pre-upgrade` hook (Argo CD PreSync). Runs before every rollout, mirroring the Railway `drizzle-kit push` start command |
+| **migrate** | `npx drizzle-kit push && npx tsx src/db/seed.ts` | Argo CD Sync hook at wave 1, after secrets and before the wave-2 Deployments. Runs on every sync, mirroring the Railway `drizzle-kit push` start command |
 
 PostgreSQL is the shared cluster instance (`postgresql.postgresql.svc.cluster.local`), database and
 role `pauseai_everything`, provisioned declaratively by the gitops repo.

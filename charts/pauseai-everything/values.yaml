@@ -51,9 +51,9 @@ worker:
       cpu: 500m
       memory: 512Mi
 
-# Runs as a Helm pre-install/pre-upgrade hook (Argo CD: PreSync) so the schema
-# is applied before the new web/worker pods roll out. Mirrors the Railway setup,
-# which ran `drizzle-kit push` on every deploy.
+# Runs as an Argo CD Sync hook (wave 1, after secrets, before the web/worker
+# Deployments at wave 2) so the schema is applied before the new pods roll out.
+# Mirrors the Railway setup, which ran `drizzle-kit push` on every deploy.
 migrate:
   enabled: true
   command: ['sh', '-c', 'npx drizzle-kit push && npx tsx src/db/seed.ts']

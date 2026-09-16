@@ -7,10 +7,13 @@ metadata:
     {{- include "pauseai-everything.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    # Argo CD maps these to a PreSync hook; the Job is recreated on every sync.
-    helm.sh/hook: pre-install,pre-upgrade
-    helm.sh/hook-weight: '0'
-    helm.sh/hook-delete-policy: before-hook-creation
+    # Argo CD Sync-phase hook at wave 1: runs after wave-0 resources (the
+    # existingSecret, Service, SA) are applied and before the wave-2
+    # Deployments roll out. A PreSync hook would run before the secret exists.
+    # Recreated on every sync. Plain `helm install` treats this as a normal Job.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: '1'
 spec:
   backoffLimit: {{ .Values.migrate.backoffLimit }}
   activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}

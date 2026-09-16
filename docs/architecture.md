@@ -405,7 +405,7 @@ This fork runs on the `danilupion-com` Kubernetes cluster via Argo CD (upstream 
 One Docker image (`Dockerfile`) is rendered by the Helm chart in `charts/pauseai-everything` into:
 - **web** — Next.js server (`npm start`), probed on `GET /api/health`
 - **worker** — graphile-worker (`npx tsx src/worker/index.ts`)
-- **migrate** — Helm pre-install/pre-upgrade hook Job (`npx drizzle-kit push && npx tsx src/db/seed.ts`), so the schema is applied before each rollout
+- **migrate** — Argo CD Sync-hook Job (wave 1; Deployments at wave 2) (`npx drizzle-kit push && npx tsx src/db/seed.ts`), so the schema is applied before each rollout
 
 GitHub Actions (`.github/workflows/ci.yml`, `cd.yml`) build the image on a self-hosted runner, push it
 to Harbor, and commit the new tag into the chart values on `main`; the gitops repo's ApplicationSet syncs

@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "pauseai-everything.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
+  annotations:
+    # Roll out only after the wave-1 migrate hook has succeeded.
+    argocd.argoproj.io/sync-wave: '2'
 spec:
   replicas: {{ .Values.web.replicaCount }}
   selector:
