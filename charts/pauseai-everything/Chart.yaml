@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pauseai-everything
+description: Helm chart for the PauseAI Everything CRM (Next.js web, graphile-worker, DB migration hook)
+type: application
+version: 0.1.0
+appVersion: '1.0.0'

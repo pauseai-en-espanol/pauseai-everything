@@ -1,0 +1,85 @@
+# Image is shared by the web server, the worker and the migration hook.
+# CD rewrites image.repository / image.tag on every push to main.
+image:
+  repository: harbor.danilupion.com/pauseai-es/pauseai-everything
+  tag: 1.0.0
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+nameOverride: ''
+fullnameOverride: ''
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Plain (non-secret) environment variables, applied to web, worker and migrate.
+env:
+  - name: EMAIL_MODE
+    value: 'sandbox'
+  - name: AUTH_TRUST_HOST
+    value: 'true'
+
+# Name of a pre-existing Secret whose keys are injected via envFrom into every
+# process. Expected keys: DATABASE_URL, NEXTAUTH_SECRET, AUTH_GOOGLE_ID,
+# AUTH_GOOGLE_SECRET, UNSUBSCRIBE_SECRET, EMAIL_ENCRYPTION_KEY, and optionally
+# MAILERSEND_API_KEY, MAILERSEND_WEBHOOK_SIGNING_SECRET, TALLY_WEBHOOK_SIGNING_SECRET.
+existingSecret: ''
+
+web:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+
+worker:
+  enabled: true
+  replicaCount: 1
+  command: ['npx', 'tsx', 'src/worker/index.ts']
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Runs as a Helm pre-install/pre-upgrade hook (Argo CD: PreSync) so the schema
+# is applied before the new web/worker pods roll out. Mirrors the Railway setup,
+# which ran `drizzle-kit push` on every deploy.
+migrate:
+  enabled: true
+  command: ['sh', '-c', 'npx drizzle-kit push && npx tsx src/db/seed.ts']
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+# Disabled: on danilupion-com the HTTPRoute lives in the gitops repo.
+ingress:
+  enabled: false
+  className: ''
+  annotations: {}
+  hosts:
+    - host: pauseai-everything.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

@@ -14,7 +14,9 @@
     "test:watch": "vitest",
     "db:seed": "npx tsx --env-file=.env src/db/seed.ts",
     "worker": "npx tsx --env-file=.env src/worker/index.ts",
-    "docs:api": "npx tsx scripts/generate-api-docs.ts"
+    "docs:api": "npx tsx scripts/generate-api-docs.ts",
+    "docker:build": "docker buildx build ${DOCKER_PLATFORM:+--platform=$DOCKER_PLATFORM} --build-arg GIT_SHA=\"${GIT_SHA:-unknown}\" -t \"${DOCKER_REGISTRY:+${DOCKER_REGISTRY}/}pauseai-es/pauseai-everything:${npm_package_version}${DOCKER_TAG_SUFFIX:+.${DOCKER_TAG_SUFFIX}}\" .",
+    "docker:push": "docker push \"${DOCKER_REGISTRY:+${DOCKER_REGISTRY}/}pauseai-es/pauseai-everything:${npm_package_version}${DOCKER_TAG_SUFFIX:+.${DOCKER_TAG_SUFFIX}}\""
   },
   "repository": {
     "type": "git",

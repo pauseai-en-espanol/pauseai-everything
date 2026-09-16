@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.env.*
+.git
+.github
+.idea
+.vscode
+.claude
+.next
+node_modules
+npm-debug.log*
+coverage
+charts
+docs
+DEVLOG.md
+BUGS.md

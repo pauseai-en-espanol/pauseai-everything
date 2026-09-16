@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - 'charts/**'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'charts/**'
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    # Skip forks (security: prevent external code from running on self-hosted runner)
+    if: |
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      !contains(github.event.head_commit.message, 'skip ci') &&
+      !(
+        github.event_name == 'pull_request' &&
+        (
+          contains(github.event.pull_request.title, 'wip') ||
+          contains(github.event.pull_request.title, 'draft')
+        )
+      )
+    runs-on: [self-hosted, juggernaut]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
